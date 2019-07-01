@@ -1,6 +1,7 @@
 from gusto import *
 from firedrake import (IcosahedralSphereMesh, SpatialCoordinate,
-                       as_vector, pi, sqrt, Min, FunctionSpace)
+                       as_vector, pi, sqrt, Min, FunctionSpace,
+                       Function, VectorFunctionSpace, Mesh)
 import sys
 
 day = 24.*60.*60.
@@ -23,10 +24,13 @@ diagnostics = Diagnostics(*fieldlist)
 
 for ref_level, dt in ref_dt.items():
 
-    dirname = "rp52_sw_W5_ref%s_dt%s" % (ref_level, dt)
+    dirname = "alt_rp52_sw_W5_ref%s_dt%s" % (ref_level, dt)
     mesh_degree = 1
-    mesh = IcosahedralSphereMesh(radius=R,
-                                 refinement_level=ref_level, degree=mesh_degree)
+    temp_mesh = IcosahedralSphereMesh(radius=R,
+                                      refinement_level=ref_level, degree=mesh_degree)
+
+    temp_coords = Function(VectorFunctionSpace(temp_mesh, "DG", mesh_degree)).interpolate(SpatialCoordinate(temp_mesh))
+    mesh = Mesh(temp_coords)
 
     x = SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
@@ -81,6 +85,12 @@ for ref_level, dt in ref_dt.items():
     D0.interpolate(Dexpr)
     state.initialise([('u', u0),
                       ('D', D0)])
+
+    ndofs = (mesh_degree + 1)*(mesh_degree + 2)//2  # specific to triangles
+    for ii in range(mesh.num_cells()):
+        mesh.coordinates.dat.data[ii*ndofs:(ii+1)*ndofs, 0] -= mesh.coordinates.dat.data[ii*ndofs:(ii+1)*ndofs, 0].mean()
+        mesh.coordinates.dat.data[ii*ndofs:(ii+1)*ndofs, 1] -= mesh.coordinates.dat.data[ii*ndofs:(ii+1)*ndofs, 1].mean()
+        mesh.coordinates.dat.data[ii*ndofs:(ii+1)*ndofs, 2] -= mesh.coordinates.dat.data[ii*ndofs:(ii+1)*ndofs, 2].mean()
 
     ueqn = AdvectionEquation(state, u0.function_space(), vector_manifold=True)
     Deqn = AdvectionEquation(state, D0.function_space(), equation_form="continuity")

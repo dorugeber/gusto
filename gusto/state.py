@@ -220,6 +220,7 @@ class State(object):
                  diagnostic_fields=None,
                  u_bc_ids=None):
 
+        self.orig_mesh_coords = mesh.coordinates.copy(deepcopy=True)
         self.family = family
         self.vertical_degree = vertical_degree
         self.horizontal_degree = horizontal_degree
@@ -474,11 +475,14 @@ class State(object):
 
         if output.dump_vtus and (next(self.dumpcount) % output.dumpfreq) == 0:
             # dump fields
+            restore_coords = self.mesh.coordinates.copy(deepcopy=True)
+            self.mesh.coordinates.assign(self.orig_mesh_coords)
             self.dumpfile.write(*self.to_dump)
 
             # dump fields on latlon mesh
             if len(output.dumplist_latlon) > 0:
                 self.dumpfile_ll.write(*self.to_dump_latlon)
+            self.mesh.coordinates.assign(restore_coords)
 
     def initialise(self, initial_conditions):
         """
