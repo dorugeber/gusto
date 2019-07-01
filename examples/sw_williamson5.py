@@ -9,8 +9,8 @@ if '--running-tests' in sys.argv:
     tmax = 3000.
 else:
     # setup resolution and timestepping parameters for convergence test
-    ref_dt = {3: 900., 4: 450., 5: 225., 6: 112.5}
-    tmax = 50*day
+    ref_dt = {5: 225.}
+    tmax = 15*day
 
 # setup shallow water parameters
 R = 6371220.
@@ -23,9 +23,11 @@ diagnostics = Diagnostics(*fieldlist)
 
 for ref_level, dt in ref_dt.items():
 
-    dirname = "sw_W5_ref%s_dt%s" % (ref_level, dt)
+    dirname = "rp52_sw_W5_ref%s_dt%s" % (ref_level, dt)
+    mesh_degree = 1
     mesh = IcosahedralSphereMesh(radius=R,
-                                 refinement_level=ref_level, degree=3)
+                                 refinement_level=ref_level, degree=mesh_degree)
+
     x = SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
 
@@ -33,7 +35,7 @@ for ref_level, dt in ref_dt.items():
 
     output = OutputParameters(dirname=dirname,
                               dumplist_latlon=['D'],
-                              dumpfreq=100,
+                              dumpfreq=8,
                               log_level='INFO')
 
     diagnostic_fields = [Sum('D', 'topography')]
