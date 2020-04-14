@@ -1,16 +1,13 @@
 from gusto import *
-from firedrake import (IcosahedralSphereMesh, SpatialCoordinate,
-                       as_vector, pi, sqrt, Min, FunctionSpace)
+from firedrake import (CubedSphereMesh, IcosahedralSphereMesh, SpatialCoordinate,
+                       as_vector, pi, sqrt, Min, FunctionSpace, MeshHierarchy)
 import sys
+import numpy as np
 
 day = 24.*60.*60.
-if '--running-tests' in sys.argv:
-    ref_dt = {3: 3000.}
-    tmax = 3000.
-else:
-    # setup resolution and timestepping parameters for convergence test
-    ref_dt = {3: 900., 4: 450., 5: 225., 6: 112.5}
-    tmax = 50*day
+hour = 60.*60.
+ref_dt = {4: 450.0}
+tmax = 5.0*day
 
 # setup shallow water parameters
 R = 6371220.
@@ -24,8 +21,10 @@ diagnostics = Diagnostics(*fieldlist)
 for ref_level, dt in ref_dt.items():
 
     dirname = "sw_W5_ref%s_dt%s" % (ref_level, dt)
-    mesh = IcosahedralSphereMesh(radius=R,
-                                 refinement_level=ref_level, degree=3)
+    mesh0 = CubedSphereMesh(radius=R, refinement_level=ref_level-2)
+    hierarchy = MeshHierarchy(mesh0, 2)
+    mesh = hierarchy[-1]
+    mesh.coordinates.dat.data[:] *= (R / np.linalg.norm(mesh.coordinates.dat.data, axis=1)).reshape(-1, 1)
     x = SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
 
@@ -33,13 +32,13 @@ for ref_level, dt in ref_dt.items():
 
     output = OutputParameters(dirname=dirname,
                               dumplist_latlon=['D'],
-                              dumpfreq=100,
+                              dumpfreq=8,
                               log_level='INFO')
 
     diagnostic_fields = [Sum('D', 'topography')]
 
     state = State(mesh, horizontal_degree=1,
-                  family="BDM",
+                  family="RTCF",
                   timestepping=timestepping,
                   output=output,
                   parameters=parameters,
@@ -96,3 +95,5 @@ for ref_level, dt in ref_dt.items():
                             sw_forcing)
 
     stepper.run(t=0, tmax=tmax)
+
+    np.save("sw-double.npy", state.fields('D').dat.data)

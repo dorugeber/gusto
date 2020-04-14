@@ -23,7 +23,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
     """
 
     def __init__(self, state, advected_fields=None, diffused_fields=None,
-                 physics_list=None, prescribed_fields=None):
+                 physics_list=None, prescribed_fields=None, round_fn=None):
 
         self.state = state
         if advected_fields is None:
@@ -42,6 +42,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
             self.prescribed_fields = prescribed_fields
         else:
             self.prescribed_fields = []
+        self.round_fn = round_fn
 
     @abstractproperty
     def passive_advection(self):
@@ -128,6 +129,9 @@ class BaseTimestepper(object, metaclass=ABCMeta):
             with timed_stage("Dump output"):
                 state.dump(t)
 
+            if self.round_fn:
+                self.round_fn(state.xn)
+
         if state.output.checkpoint:
             state.chkpt.close()
 
@@ -154,9 +158,10 @@ class CrankNicolson(BaseTimestepper):
     """
 
     def __init__(self, state, advected_fields, linear_solver, forcing,
-                 diffused_fields=None, physics_list=None, prescribed_fields=None):
+                 diffused_fields=None, physics_list=None, prescribed_fields=None,
+                 round_fn=None):
 
-        super().__init__(state, advected_fields, diffused_fields, physics_list, prescribed_fields)
+        super().__init__(state, advected_fields, diffused_fields, physics_list, prescribed_fields, round_fn)
         self.linear_solver = linear_solver
         self.forcing = forcing
 
