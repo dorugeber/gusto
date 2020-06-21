@@ -1,7 +1,7 @@
 from gusto import *
 from firedrake import (CubedSphereMesh, IcosahedralSphereMesh, SpatialCoordinate,
                        as_vector, pi, sqrt, Min, FunctionSpace, MeshHierarchy,
-                       Function, assemble, dx, FiniteElement, inject, prolong)
+                       Function, assemble, dx, FiniteElement, inject, prolong, File)
 import sys
 import numpy as np
 
@@ -38,7 +38,7 @@ for ref_level, dt in ref_dt.items():
 
     output = OutputParameters(dirname=dirname,
                               dumplist_latlon=['D'],
-                              dumpfreq=8,
+                              dumpfreq=1,
                               log_level='INFO')
 
     diagnostic_fields = [Sum('D', 'topography')]
@@ -70,6 +70,8 @@ for ref_level, dt in ref_dt.items():
         tbits += pbits[ii]*ndofs[ii]
     avgbits = tbits/ndofs[-1]
     print("Bits:", pbits, avgbits)
+
+    outfiles = [File("results/alt" + dirname + "/D"+str(idx)+".pvd") for idx, nbit in enumerate(pbits)]
 
 
     def roundfield(field, nbits):
@@ -104,6 +106,10 @@ for ref_level, dt in ref_dt.items():
         
         # copy back into field data
         field.assign(us_sum[-1])
+
+        # hacky - output here too
+        for ii in range(plevels):
+            outfiles[ii].write(us_decomp[ii])
 
 
     def roundstate(xn):
