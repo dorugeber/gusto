@@ -1,7 +1,6 @@
 from gusto import *
 from firedrake import (CubedSphereMesh, SpatialCoordinate,
                        as_vector, pi, sqrt, Min, FunctionSpace, MeshHierarchy)
-import sys
 import numpy as np
 
 baseref = 2
@@ -97,5 +96,5 @@ for ref_level, dt in ref_dt.items():
     stepper.run(t=0, tmax=tmax)
 
     # spun-up state to start with
-    np.save("day50-D.npy", state.fields('D').dat.data)
     np.save("day50-u.npy", state.fields('u').dat.data)
+    np.save("day50-D.npy", state.fields('D').dat.data)
