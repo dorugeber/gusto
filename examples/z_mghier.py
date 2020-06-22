@@ -1,20 +1,28 @@
 from gusto import *
 from firedrake import (CubedSphereMesh, SpatialCoordinate,
-                       as_vector, pi, sqrt, Min, FunctionSpace, MeshHierarchy,
-                       Function, assemble, dx, FiniteElement, inject, prolong, File)
+                       pi, sqrt, Min, FunctionSpace, MeshHierarchy,
+                       Function, assemble, dx, FiniteElement, TransferManager, File)
 import sys
 import numpy as np
 
+baseref = 2
 day = 24.*60.*60.
 hour = 60.*60.
 ref_dt = {4: 450.0}
-tmax = 5.0*day
+dfreq = 8
+tmax = 10.0*day
 
-assert len(sys.argv) > 1, "No bits given"
-assert len(sys.argv) <= 4, "At most 3 refinement levels supported"
-pbits = [int(foo) for foo in sys.argv[1:]]  # number of bits used on each level
-# e.g., pbits = [9, 8, 7]
-plevels = len(pbits)
+assert len(sys.argv) > 2, "Give number of levels, followed by u and D bits on each level"
+assert len(sys.argv) <= 8, "At most 3 refinement levels supported"
+
+plevels = int(sys.argv[1])
+assert plevels in (1, 2, 3), "Number of levels must be 1, 2, or 3"
+assert len(sys.argv) == 2*plevels + 2, "Wrong number of arguments"
+
+allbits = [int(foo) for foo in sys.argv[2:]]  # e.g. [8, 9, 7, 7]
+ubits = allbits[::2]  # e.g., [8, 7]
+Dbits = allbits[1::2]  # e.g., [9, 7]
+
 
 # setup shallow water parameters
 R = 6371220.
@@ -26,9 +34,10 @@ parameters = ShallowWaterParameters(H=H)
 diagnostics = Diagnostics(*fieldlist)
 
 for ref_level, dt in ref_dt.items():
-    dirname = "_".join([str(foo) for foo in pbits]) + "_sw_W5_ref%s_dt%s" % (ref_level, dt)
-    mesh0 = CubedSphereMesh(radius=R, refinement_level=ref_level-2)
-    hierarchy = MeshHierarchy(mesh0, 2)
+    assert ref_level >= baseref
+    dirname = "comp_" + "_".join([str(foo) for foo in allbits])
+    mesh0 = CubedSphereMesh(radius=R, refinement_level=baseref)
+    hierarchy = MeshHierarchy(mesh0, ref_level-baseref)
     mesh = hierarchy[-1]
     mesh.coordinates.dat.data[:] *= (R / np.linalg.norm(mesh.coordinates.dat.data, axis=1)).reshape(-1, 1)
     x = SpatialCoordinate(mesh)
@@ -37,8 +46,7 @@ for ref_level, dt in ref_dt.items():
     timestepping = TimesteppingParameters(dt=dt)
 
     output = OutputParameters(dirname=dirname,
-                              dumplist_latlon=['D'],
-                              dumpfreq=1,
+                              dumpfreq=dfreq,
                               log_level='INFO')
 
     diagnostic_fields = [Sum('D', 'topography')]
@@ -52,77 +60,112 @@ for ref_level, dt in ref_dt.items():
                   fieldlist=fieldlist)
 
     cell = mesh.ufl_cell().cellname()
-    DG_elt = FiniteElement("DG", cell, 1, variant="equispaced")
+    V_elt = FiniteElement("RTCF", cell, 2, variant="equispaced")
+    W_elt = FiniteElement("DG", cell, 1, variant="equispaced")
 
-    Vdgs = [FunctionSpace(msh, DG_elt) for msh in hierarchy[-plevels:]]
+    Vs = [FunctionSpace(msh, V_elt) for msh in hierarchy[-plevels:]]
+    Ws = [FunctionSpace(msh, W_elt) for msh in hierarchy[-plevels:]]
 
-    us_exact = [Function(fs, name="uexact_"+str(idx)) for idx, fs in enumerate(Vdgs)]
-    us_prolonged = [Function(fs, name="uprolong_"+str(idx)) for idx, fs in enumerate(Vdgs)]
-    us_decomp = [Function(fs, name="udecomp_"+str(idx)) for idx, fs in enumerate(Vdgs)]
-    us_sum = [Function(fs, name="usum_"+str(idx)) for idx, fs in enumerate(Vdgs)]
+    us_exact = [Function(fs, name="uexact_"+str(idx)) for idx, fs in enumerate(Vs)]
+    us_prolonged = [Function(fs, name="uprolong_"+str(idx)) for idx, fs in enumerate(Vs)]
+    us_decomp = [Function(fs, name="udecomp_"+str(idx)) for idx, fs in enumerate(Vs)]
+    us_sum = [Function(fs, name="usum_"+str(idx)) for idx, fs in enumerate(Vs)]
+
+    Ds_exact = [Function(fs, name="Dexact_"+str(idx)) for idx, fs in enumerate(Ws)]
+    Ds_prolonged = [Function(fs, name="Dprolong_"+str(idx)) for idx, fs in enumerate(Ws)]
+    Ds_decomp = [Function(fs, name="Ddecomp_"+str(idx)) for idx, fs in enumerate(Ws)]
+    Ds_sum = [Function(fs, name="Dsum_"+str(idx)) for idx, fs in enumerate(Ws)]
 
     # calculate avg bits per DoF
-    ndofs = []
+    udofs = []
+    Ddofs = []
     for ii in range(plevels):
-        ndofs.append(len(us_decomp[ii].dat.data))
+        udofs.append(len(us_decomp[ii].dat.data))
+        Ddofs.append(len(Ds_decomp[ii].dat.data))
     tbits = 0
     for ii in range(plevels):
-        tbits += pbits[ii]*ndofs[ii]
-    avgbits = tbits/ndofs[-1]
-    print("Bits:", pbits, avgbits)
+        tbits += ubits[ii]*udofs[ii]
+        tbits += Dbits[ii]*Ddofs[ii]
+    avgbits = tbits/(udofs[-1]+Ddofs[-1])
+    print("Bits:", allbits, avgbits)
 
-    outfiles = [File("results/alt" + dirname + "/D"+str(idx)+".pvd") for idx, nbit in enumerate(pbits)]
-
+    dcount = 0
+    outfiles = [File("results/alt" + dirname + "/uD"+str(idx)+".pvd") for idx, nbit in enumerate(ubits)]
+    tm = TransferManager()
 
     def roundfield(field, nbits):
         biggestnum = max(abs(np.max(field.dat.data[:])), abs(np.min(field.dat.data[:])))
         prec = 2.0**(np.ceil(np.log2(biggestnum)) - (nbits - 1))
         field.dat.data[:] = prec * np.round(field.dat.data[:]/prec)
 
+    def roundstate(xn):
+        global dcount
+        xnu, xnD = xn.split()
 
-    def roundhier(field, pbits):
+        # 1. Velocity
         # copy into function list
-        us_exact[-1].assign(field)
+        us_exact[-1].assign(xnu)
 
         # inject to coarsest level
         for ii in range(plevels-1, 0, -1):
-            inject(us_exact[ii], us_exact[ii-1])
+            tm.inject(us_exact[ii], us_exact[ii-1])
 
         # at coarsest level, round directly
         us_decomp[0].assign(us_exact[0])
-        roundfield(us_decomp[0], pbits[0])
+        roundfield(us_decomp[0], ubits[0])
         us_sum[0].assign(us_decomp[0])
 
         # at each level...
         for ii in range(1, plevels):
             # prolong the previous sum
-            prolong(us_sum[ii-1], us_prolonged[ii])
+            tm.prolong(us_sum[ii-1], us_prolonged[ii])
             # calculate the residual
             us_decomp[ii].assign(us_exact[ii] - us_prolonged[ii])
             # round this
-            roundfield(us_decomp[ii], pbits[ii])
+            roundfield(us_decomp[ii], ubits[ii])
             # create new sum
             us_sum[ii].assign(us_prolonged[ii] + us_decomp[ii])
-        
+
         # copy back into field data
-        field.assign(us_sum[-1])
+        xnu.assign(us_sum[-1])
+
+        # 2. Depth
+        # copy into function list
+        Ds_exact[-1].assign(xnD)
+
+        # inject to coarsest level
+        for ii in range(plevels-1, 0, -1):
+            tm.inject(Ds_exact[ii], Ds_exact[ii-1])
+
+        # at coarsest level, round directly
+        Ds_decomp[0].assign(Ds_exact[0])
+        roundfield(Ds_decomp[0], Dbits[0])
+        Ds_sum[0].assign(Ds_decomp[0])
+
+        # at each level...
+        for ii in range(1, plevels):
+            # prolong the previous sum
+            tm.prolong(Ds_sum[ii-1], Ds_prolonged[ii])
+            # calculate the residual
+            Ds_decomp[ii].assign(Ds_exact[ii] - Ds_prolonged[ii])
+            # round this
+            roundfield(Ds_decomp[ii], Dbits[ii])
+            # create new sum
+            Ds_sum[ii].assign(Ds_prolonged[ii] + Ds_decomp[ii])
+
+        # copy back into field data
+        xnD.assign(Ds_sum[-1])
 
         # hacky - output here too
-        for ii in range(plevels):
-            outfiles[ii].write(us_decomp[ii])
+        if dcount % dfreq == 0:
+            for ii in range(plevels):
+                outfiles[ii].write(us_decomp[ii], Ds_decomp[ii])
+        dcount += 1
 
-
-    def roundstate(xn):
-        xnu, xnD = xn.split()
-        roundhier(xnD, pbits)
-        
-
-    # interpolate initial conditions
+    # set up b and load in initial conditions
     u0 = state.fields('u')
     D0 = state.fields('D')
     x = SpatialCoordinate(mesh)
-    u_max = 20.   # Maximum amplitude of the zonal wind (m/s)
-    uexpr = as_vector([-u_max*x[1]/R, u_max*x[0]/R, 0.0])
     theta, lamda = latlon_coords(mesh)
     Omega = parameters.Omega
     g = parameters.g
@@ -136,7 +179,6 @@ for ref_level, dt in ref_dt.items():
     rsq = Min(R0sq, lsq+thsq)
     r = sqrt(rsq)
     bexpr = 2000 * (1 - r/R0)
-    Dexpr = H - ((R * Omega * u_max + 0.5*u_max**2)*x[2]**2/Rsq)/g - bexpr
 
     # Coriolis
     fexpr = 2*Omega*x[2]/R
@@ -146,8 +188,9 @@ for ref_level, dt in ref_dt.items():
     b = state.fields("topography", D0.function_space())
     b.interpolate(bexpr)
 
-    u0.project(uexpr)
-    D0.interpolate(Dexpr)
+    u0.dat.data[:] = np.load("day50-u-lo.npy")
+    D0.dat.data[:] = np.load("day50-D-lo.npy")
+
     state.initialise([('u', u0),
                       ('D', D0)])
 
@@ -168,11 +211,33 @@ for ref_level, dt in ref_dt.items():
 
     stepper.run(t=0, tmax=tmax)
 
-    D_double = Function(state.fields('D'))
-    D_double.dat.data[:] = np.load("sw-double.npy")
+    # Analyse output...
+    # Load in truth and double
+    truth_u = Function(state.fields('u'))
+    truth_D = Function(state.fields('D'))
 
-    D_diff = Function(state.fields('D'))
-    D_diff.assign(state.fields('D') - D_double)
-    l2err = sqrt(assemble(D_diff*D_diff*dx))/sqrt(assemble(D_double*D_double*dx))
+    model_u = Function(state.fields('u'))
+    model_D = Function(state.fields('D'))
+
+    truth_u.dat.data[:] = np.load("truth-lo-u.npy")
+    truth_D.dat.data[:] = np.load("truth-lo-D.npy")
+
+    model_u.dat.data[:] = np.load("double-u.npy")
+    model_D.dat.data[:] = np.load("double-D.npy")
+
+    # Calculate errors
+    err1_u = Function(V).assign(state.fields('u') - model_u)
+    err1_D = Function(W).assign(state.fields('D') - model_D)
+
+    err2_u = Function(V).assign(state.fields('u') - truth_u)
+    err2_D = Function(W).assign(state.fields('D') - truth_D)
+
+    l2err1_u = sqrt(assemble(inner(err1_u, err1_u)*dx))/sqrt(assemble(inner(model_u, model_u)*dx))
+    l2err1_D = sqrt(assemble(inner(err1_D, err1_D)*dx))/sqrt(assemble(inner(model_D, model_D)*dx))
+
+    l2err2_u = sqrt(assemble(inner(err2_u, err2_u)*dx))/sqrt(assemble(inner(truth_u, truth_u)*dx))
+    l2err2_D = sqrt(assemble(inner(err2_D, err2_D)*dx))/sqrt(assemble(inner(truth_D, truth_D)*dx))
+
+    print("L^2 errors vs double:", l2err1_u, l2err1_D)
+    print("L^2 errors vs truth:", l2err2_u, l2err2_D)
     print("Bits:", pbits, avgbits)
-    print("Relative L^2 error:", l2err)
