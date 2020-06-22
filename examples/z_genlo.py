@@ -1,6 +1,6 @@
-from firedrake import (CubedSphereMesh, FunctionSpace, MeshHierarchy, inject,
-                       restrict, prolong, SpatialCoordinate, Function, File,
-                       TransferManager, pi, sqrt, Min, FiniteElement)
+from firedrake import (CubedSphereMesh, FunctionSpace, MeshHierarchy,
+                       SpatialCoordinate, Function, File, TransferManager,
+                       pi, sqrt, Min, FiniteElement)
 from gusto import latlon_coords
 import numpy as np
 

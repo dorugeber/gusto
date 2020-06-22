@@ -1,6 +1,6 @@
 from gusto import *
-from firedrake import (CubedSphereMesh, SpatialCoordinate,
-                       as_vector, pi, sqrt, Min, FunctionSpace, MeshHierarchy)
+from firedrake import (CubedSphereMesh, SpatialCoordinate, pi, sqrt,
+                       Min, FunctionSpace, MeshHierarchy)
 import numpy as np
 
 baseref = 2
