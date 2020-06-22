@@ -8,7 +8,7 @@ baseref = 2
 day = 24.*60.*60.
 hour = 60.*60.
 ref_dt = {5: 225.0}
-tmax = 50.0*day
+tmax = 10.0*day
 
 # setup shallow water parameters
 R = 6371220.
@@ -21,7 +21,7 @@ diagnostics = Diagnostics(*fieldlist)
 
 for ref_level, dt in ref_dt.items():
     assert ref_level >= baseref
-    dirname = "spinup_ref%s" % ref_level
+    dirname = "truth_ref%s" % ref_level
     mesh0 = CubedSphereMesh(radius=R, refinement_level=baseref)
     hierarchy = MeshHierarchy(mesh0, ref_level-baseref)
     mesh = hierarchy[-1]
@@ -45,12 +45,10 @@ for ref_level, dt in ref_dt.items():
                   diagnostic_fields=diagnostic_fields,
                   fieldlist=fieldlist)
 
-    # interpolate initial conditions
+    # set up b and load in initial conditions
     u0 = state.fields('u')
     D0 = state.fields('D')
     x = SpatialCoordinate(mesh)
-    u_max = 20.   # Maximum amplitude of the zonal wind (m/s)
-    uexpr = as_vector([-u_max*x[1]/R, u_max*x[0]/R, 0.0])
     theta, lamda = latlon_coords(mesh)
     Omega = parameters.Omega
     g = parameters.g
@@ -64,7 +62,6 @@ for ref_level, dt in ref_dt.items():
     rsq = Min(R0sq, lsq+thsq)
     r = sqrt(rsq)
     bexpr = 2000 * (1 - r/R0)
-    Dexpr = H - ((R * Omega * u_max + 0.5*u_max**2)*x[2]**2/Rsq)/g - bexpr
 
     # Coriolis
     fexpr = 2*Omega*x[2]/R
@@ -74,8 +71,9 @@ for ref_level, dt in ref_dt.items():
     b = state.fields("topography", D0.function_space())
     b.interpolate(bexpr)
 
-    u0.project(uexpr)
-    D0.interpolate(Dexpr)
+    u0.dat.data[:] = np.load("day50-u.npy")
+    D0.dat.data[:] = np.load("day50-D.npy")
+
     state.initialise([('u', u0),
                       ('D', D0)])
 
@@ -97,5 +95,5 @@ for ref_level, dt in ref_dt.items():
     stepper.run(t=0, tmax=tmax)
 
     # spun-up state to start with
-    np.save("day50-D.npy", state.fields('D').dat.data)
-    np.save("day50-u.npy", state.fields('u').dat.data)
+    np.save("truth-hi-D.npy", state.fields('D').dat.data)
+    np.save("truth-hi-u.npy", state.fields('u').dat.data)

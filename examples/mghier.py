@@ -1,5 +1,5 @@
 from gusto import *
-from firedrake import (CubedSphereMesh, IcosahedralSphereMesh, SpatialCoordinate,
+from firedrake import (CubedSphereMesh, SpatialCoordinate,
                        as_vector, pi, sqrt, Min, FunctionSpace, MeshHierarchy,
                        Function, assemble, dx, FiniteElement, inject, prolong, File)
 import sys
