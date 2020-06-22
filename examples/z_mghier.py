@@ -1,7 +1,8 @@
 from gusto import *
 from firedrake import (CubedSphereMesh, SpatialCoordinate,
                        pi, sqrt, Min, FunctionSpace, MeshHierarchy,
-                       Function, assemble, dx, FiniteElement, TransferManager, File)
+                       Function, assemble, dx, FiniteElement, TransferManager, File,
+                       inner)
 import sys
 import numpy as np
 
@@ -226,11 +227,11 @@ for ref_level, dt in ref_dt.items():
     model_D.dat.data[:] = np.load("double-D.npy")
 
     # Calculate errors
-    err1_u = Function(V).assign(state.fields('u') - model_u)
-    err1_D = Function(W).assign(state.fields('D') - model_D)
+    err1_u = Function(state.fields('u')).assign(state.fields('u') - model_u)
+    err1_D = Function(state.fields('D')).assign(state.fields('D') - model_D)
 
-    err2_u = Function(V).assign(state.fields('u') - truth_u)
-    err2_D = Function(W).assign(state.fields('D') - truth_D)
+    err2_u = Function(state.fields('u')).assign(state.fields('u') - truth_u)
+    err2_D = Function(state.fields('D')).assign(state.fields('D') - truth_D)
 
     l2err1_u = sqrt(assemble(inner(err1_u, err1_u)*dx))/sqrt(assemble(inner(model_u, model_u)*dx))
     l2err1_D = sqrt(assemble(inner(err1_D, err1_D)*dx))/sqrt(assemble(inner(model_D, model_D)*dx))
@@ -240,4 +241,4 @@ for ref_level, dt in ref_dt.items():
 
     print("L^2 errors vs double:", l2err1_u, l2err1_D)
     print("L^2 errors vs truth:", l2err2_u, l2err2_D)
-    print("Bits:", pbits, avgbits)
+    print("Bits:", allbits, avgbits)
