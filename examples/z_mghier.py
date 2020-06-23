@@ -39,11 +39,13 @@ for ref_level, dt in ref_dt.items():
     dirname = "comp_" + "_".join([str(foo) for foo in allbits])
     mesh0 = CubedSphereMesh(radius=R, refinement_level=baseref)
     hierarchy = MeshHierarchy(mesh0, ref_level-baseref)
-    mesh = hierarchy[-1]
-    mesh.coordinates.dat.data[:] *= (R / np.linalg.norm(mesh.coordinates.dat.data, axis=1)).reshape(-1, 1)
-    x = SpatialCoordinate(mesh)
-    mesh.init_cell_orientations(x)
 
+    for msh in hierarchy[-plevels:]:
+        msh.coordinates.dat.data[:] *= (R / np.linalg.norm(msh.coordinates.dat.data, axis=1)).reshape(-1, 1)
+        x = SpatialCoordinate(msh)
+        msh.init_cell_orientations(x)
+
+    mesh = hierarchy[-1]
     timestepping = TimesteppingParameters(dt=dt)
 
     output = OutputParameters(dirname=dirname,
